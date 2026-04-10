@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>QueueFlow Management</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root{
+      --bg: #f7fbff;
+      --card: #ffffff;
+      --muted: #6c757d;
+      --accent: linear-gradient(135deg,#6dd5ed 0%,#2193b0 100%);
+      --glass: rgba(255,255,255,0.7);
+      --primary: #0d6efd;
+      --soft: #eef7ff;
+      --success:#2dd4bf;
+    }
+    html,body{height:100%;background:radial-gradient(1200px 400px at 10% 10%, rgba(45,212,191,0.06), transparent), radial-gradient(900px 300px at 90% 90%, rgba(13,110,253,0.04), transparent), var(--bg);font-family:Inter,system-ui,Arial}
+    .app{max-width:1150px;margin:22px auto;padding:18px}
+    .card{border-radius:14px;border:0;box-shadow:0 10px 30px rgba(18,38,63,0.06)}
+    .topbar{display:flex;justify-content:space-between;align-items:center}
+    #map{height:320px;border-radius:10px;border:1px solid rgba(13,38,76,0.06)}
+    .small-muted{font-size:13px;color:var(--muted)}
+    .btn-soft{background:linear-gradient(90deg,#fff 0%, rgba(255,255,255,0.85) 100%);border:1px solid rgba(13,38,76,0.04)}
+    .clinic-card{transition:transform .18s ease,box-shadow .18s ease}
+    .clinic-card:hover{transform:translateY(-6px);box-shadow:0 18px 40px rgba(13,38,76,0.06)}
+    .token-badge{font-weight:800;font-size:28px;color:#0b5ed7}
+    .position-pill{background:linear-gradient(90deg,#dff6ff,#eefbff);padding:6px 12px;border-radius:999px;font-weight:700}
+    .muted-2{color:#98a0b3}
+    .tiny{font-size:12px}
+    .clinic-actions .btn{min-width:120px}
+    .progress-est{height:10px;border-radius:999px}
+    .search-input{box-shadow:0 6px 22px rgba(13,38,76,0.04)}
+    .faded{opacity:0.85}
+    .role-badge{background:linear-gradient(90deg,#fff,#f8fbff);border-radius:10px;padding:6px 10px;border:1px solid rgba(13,38,76,0.04)}
+    .toast-container{position:fixed;right:18px;bottom:18px;z-index:1200}
+    @media (max-width:991px){ .app{padding:12px} }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar mb-3">
+      <div>
+        <h3 class="mb-0">QueueFlow <small class="text-muted">— modern prototype</small></h3>
+        <div class="small-muted">Patient • Doctor • Admin — Client-only demo</div>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <div id="userArea"></div>
+        <div class="role-badge small-muted" title="Switch demo roles">Demo roles</div>
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-12 col-lg-8">
+        <div id="mainCard" class="card p-3">
+          <div id="appRoot"></div>
+        </div>
+      </div>
+
+      <div class="col-12 col-lg-4">
+        <div class="card p-3 mb-3">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <h6 class="mb-0">Live Booking</h6>
+              <div class="small-muted">Track your active token & ETA</div>
+            </div>
+            <div class="text-end small-muted tiny">Auto-sync across tabs</div>
+          </div>
+
+          <div id="liveStatus" class="mt-3 small-muted">No token active</div>
+
+          <div id="tokenCard" style="display:none" class="mt-3">
+            <div class="d-flex align-items-center justify-content-between">
+              <div>
+                <div class="small-muted">Your token</div>
+                <div class="token-badge" id="sideToken">--</div>
+                <div class="small-muted" id="sideClinic">Clinic</div>
+              </div>
+              <div class="text-end">
+                <div class="small-muted">Position</div>
+                <div id="sidePosition" class="position-pill">--</div>
+              </div>
+            </div>
+            <div class="mt-3 small-muted">Estimated wait: <strong id="sideEstimate">--</strong></div>
+            <div class="mt-2">
+              <div class="progress progress-est">
+                <div id="sideProgress" class="progress-bar" role="progressbar" style="width:0%"></div>
+              </div>
+            </div>
+            <div class="d-flex gap-2 mt-3">
+              <button class="btn btn-outline-danger btn-sm" id="btnClearToken">Clear Token</button>
+              <button class="btn btn-outline-secondary btn-sm" id="btnOpenTabs">Open Tabs</button>
+              <button class="btn btn-outline-primary btn-sm" id="btnRefresh">Refresh</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card p-3">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">Reports</h6>
+            <div class="small-muted tiny">Admin</div>
+          </div>
+          <canvas id="reportChart" height="160"></canvas>
+        </div>
+      </div>
+    </div>
+
+    
+  </div>
+
+  <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer"></div>
+
+<script>
+const STORAGE = 'qf_demo_db_v1_enhanced';
+const TOKEN_KEY = 'qf_demo_user_token';
+const BC_NAME = 'qf_demo_bc_enhanced';
+const bc = (() => { try { return new BroadcastChannel(BC_NAME); } catch(e){ return null; } })();
+
+function uid(prefix='id'){ return prefix + '_' + Math.random().toString(36).slice(2,9); }
+
+function seedData(){
+  return {
+    users:[
+      {id:'u_patient',name:'Priya',email:'patient@example.com',password:'pass',role:'patient'},
+      {id:'u_doctor',name:'Dr. Rao',email:'doctor@example.com',password:'pass',role:'doctor',doctorOf:'clinic_1'},
+      {id:'u_admin',name:'Admin',email:'admin@example.com',password:'pass',role:'admin'}
+    ],
+    clinics:[
+      {id:'clinic_1',name:'CarePlus Clinic',address:'MG Road',lat:12.9719,lon:77.5937,doctors:[{id:'d1',name:'Dr. Anika',avg:10,userid:'u_doctor'}],queue:{nowServing:1,issued:24}},
+      {id:'clinic_2',name:'Wellness Dental',address:'Sector 5',lat:12.9666,lon:77.5865,doctors:[{id:'d2',name:'Dr. Meera',avg:15}],queue:{nowServing:1,issued:6}},
+      {id:'clinic_3',name:'City Eye Center',address:'Near Metro',lat:12.9790,lon:77.5910,doctors:[{id:'d3',name:'Dr. Rao',avg:8}],queue:{nowServing:1,issued:3}}
+    ],
+    tokens:[]
+  };
+}
+
+function loadDB(){ const raw = localStorage.getItem(STORAGE); if(!raw){ const d=seedData(); localStorage.setItem(STORAGE, JSON.stringify(d)); return d; } try{return JSON.parse(raw);}catch(e){const d=seedData(); localStorage.setItem(STORAGE,JSON.stringify(d));return d;} }
+function saveDB(d){ localStorage.setItem(STORAGE, JSON.stringify(d)); if(bc) bc.postMessage({type:'DB_UPDATED'}); }
+let DB = loadDB();
+
+if(bc){ bc.onmessage = (ev)=>{ if(ev.data && ev.data.type==='DB_UPDATED'){ DB = loadDB(); renderApp(); updateSideToken(); renderReportChart(); showToast('Data synced from other tab', 'info'); } }}
+
+function login(email,password){ const u = DB.users.find(x=>x.email===email && x.password===password); if(!u) return null; const token = {jwt: btoa(u.id + '|' + Date.now()), userId: u.id}; localStorage.setItem('qf_session', JSON.stringify(token)); renderUserArea(); renderApp(); return token; }
+function logout(){ localStorage.removeItem('qf_session'); renderUserArea(); renderApp(); }
+function currentSession(){ try{ return JSON.parse(localStorage.getItem('qf_session')); }catch(e){return null;} }
+function currentUser(){ const s=currentSession(); if(!s) return null; return DB.users.find(u=>u.id===s.userId); }
+
+const appRoot = document.getElementById('appRoot');
+function el(html){ const d=document.createElement('div'); d.innerHTML=html.trim(); return d.firstChild; }
+
+function renderUserArea(){ const ua = document.getElementById('userArea'); const u = currentUser(); if(!u){ ua.innerHTML = `
+  <div class="d-flex gap-2">
+    <button class='btn btn-outline-primary btn-sm' onclick='showAuthModal("login")'>Login</button>
+    <button class='btn btn-primary btn-sm' onclick='showAuthModal("register")'>Register</button>
+  </div>
+`; } else { ua.innerHTML = `
+  <div class='d-flex align-items-center gap-2'>
+    <div class='text-end me-2 small-muted' style='min-width:150px'>Hello, <strong>${u.name}</strong><br><span class='small-muted'>${u.role}</span></div>
+    <div>
+      <button class='btn btn-outline-secondary btn-sm me-1' onclick='switchToRole()'>Switch</button>
+      <button class='btn btn-danger btn-sm' onclick='logout()'>Logout</button>
+    </div>
+  </div>
+`; } }
+
+function showToast(msg, type='success', timeout=2400){ const id = 't_'+Math.random().toString(36).slice(2,8); const cont = document.getElementById('toastContainer'); const toast = document.createElement('div'); toast.className = `toast align-items-center text-bg-${type} border-0`; toast.id = id; toast.role='alert'; toast.ariaLive='assertive'; toast.ariaAtomic='true'; toast.innerHTML = `<div class='d-flex'><div class='toast-body'>${msg}</div><button type='button' class='btn-close btn-close-white me-2 m-auto' data-bs-dismiss='toast' aria-label='Close'></button></div>`; cont.appendChild(toast); const b = new bootstrap.Toast(toast,{delay:timeout}); b.show(); setTimeout(()=>{ try{ toast.remove(); }catch(e){} }, timeout+600); }
+
+function showAuthModal(mode='login'){ appRoot.innerHTML = `
+  <div class='row'>
+    <div class='col-md-6'>
+      <h4>${mode==='login'?'Login':'Register'}</h4>
+      <p class='small-muted'>Demo: patient@example.com / pass • doctor@example.com / pass • admin@example.com / pass</p>
+      <div class='mb-2'>
+        <input id='authName' class='form-control mb-2' placeholder='Name' style='display:${mode==='login'?'none':'block'}' />
+        <input id='authEmail' class='form-control mb-2' placeholder='Email' />
+        <input id='authPass' type='password' class='form-control mb-2' placeholder='Password' />
+        <select id='authRole' class='form-select mb-2'>
+          <option value='patient'>Patient</option>
+          <option value='doctor'>Doctor</option>
+          <option value='admin'>Admin</option>
+        </select>
+        <div class='d-flex gap-2'>
+          <button class='btn btn-primary' id='authSubmit'>${mode==='login'?'Login':'Register'}</button>
+          <button class='btn btn-outline-secondary' onclick='renderAuth()'>Back</button>
+        </div>
+      </div>
+    </div>
+    <div class='col-md-6'>
+      <h5>Quick Demo</h5>
+      <div class='d-flex flex-column gap-2'>
+        <button class='btn btn-sm btn-light' onclick='quickLogin("patient@example.com","pass")'>Login as Patient</button>
+        <button class='btn btn-sm btn-light' onclick='quickLogin("doctor@example.com","pass")'>Login as Doctor</button>
+        <button class='btn btn-sm btn-light' onclick='quickLogin("admin@example.com","pass")'>Login as Admin</button>
+      </div>
+    </div>
+  </div>
+`;
+  document.getElementById('authSubmit').addEventListener('click', ()=>{
+    const email = document.getElementById('authEmail').value.trim(); const pass = document.getElementById('authPass').value.trim(); const role = document.getElementById('authRole').value; const name = (document.getElementById('authName') && document.getElementById('authName').value.trim()) || email.split('@')[0];
+    if(!email||!pass) return alert('Email & password required');
+    if(mode==='login'){ const res = login(email,pass); if(!res) return alert('Invalid credentials'); renderUserArea(); renderApp(); showToast('Logged in', 'success'); } else { if(DB.users.find(u=>u.email===email)) return alert('User exists'); const u={id:uid('u'),name,email,password:pass,role}; DB.users.push(u); saveDB(DB); showToast('Registered — login now', 'info'); showAuthModal('login'); }
+  });
+}
+function renderAuth(){ appRoot.innerHTML = `
+  <div class='row'>
+    <div class='col-md-6'>
+      <h4>Welcome</h4>
+      <p class='small-muted'>Login to continue or register a new account.</p>
+      <div class='d-flex gap-2'>
+        <button class='btn btn-primary' onclick='showAuthModal("login")'>Login</button>
+        <button class='btn btn-outline-primary' onclick='showAuthModal("register")'>Register</button>
+      </div>
+    </div>
+    <div class='col-md-6'>
+      <h5>Quick Demo Links</h5>
+      <div class='d-flex flex-column gap-2'>
+        <button class='btn btn-sm btn-light' onclick='quickLogin("patient@example.com","pass")'>Login as Patient</button>
+        <button class='btn btn-sm btn-light' onclick='quickLogin("doctor@example.com","pass")'>Login as Doctor</button>
+        <button class='btn btn-sm btn-light' onclick='quickLogin("admin@example.com","pass")'>Login as Admin</button>
+      </div>
+    </div>
+  </div>
+`;
+}
+function quickLogin(e,p){ login(e,p); renderUserArea(); renderApp(); }
+
+let patientMap=null; let markers=[]; let userLoc=null;
+function renderPatient(user){ appRoot.innerHTML = `
+  <div>
+    <div class='d-flex justify-content-between align-items-center mb-2'>
+      <div>
+        <h4 class='mb-0'>Patient Dashboard</h4>
+        <div class='small-muted'>Find nearby clinics, join queue quickly.</div>
+      </div>
+      <div class='d-flex gap-2'>
+        <input id='clinicSearch' class='form-control form-control-sm search-input' placeholder='Search clinics or address' style='width:260px' />
+        <button class='btn btn-outline-secondary btn-sm' id='btnLocate'>Use my location</button>
+      </div>
+    </div>
+
+    <div class='row g-3'>
+      <div class='col-12'>
+        <div id='map' class='mb-2'></div>
+      </div>
+      <div class='col-12'>
+        <div class='card p-3'>
+          <div class='d-flex justify-content-between align-items-center'>
+            <h5 class='mb-0'>Clinics</h5>
+            <div class='small-muted tiny'>Showing <span id='clinicCount'>0</span></div>
+          </div>
+          <div id='clinicList' class='mt-3'></div>
+        </div>
+      </div>
+    </div>
+  </div>
+`;
+  initMap(); renderClinicList(); updateSideToken();
+  document.getElementById('clinicSearch').addEventListener('input', ()=>renderClinicList());
+  document.getElementById('btnLocate').addEventListener('click', ()=>{ if(navigator.geolocation){ navigator.geolocation.getCurrentPosition(p=>{ userLoc=[p.coords.latitude,p.coords.longitude]; patientMap.setView(userLoc,13); showUserMarker(userLoc); renderClinicList(); showToast('Location found', 'info'); }, ()=>showToast('Location denied or unavailable','danger')); } else showToast('Geolocation not supported','danger'); });
+}
+function initMap(){ if(patientMap) return; patientMap = L.map('map',{zoomControl:true}).setView([12.9719,77.5937],13); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(patientMap); markers = []; DB.clinics.forEach(c=>{ const m=L.marker([c.lat,c.lon]).addTo(patientMap).bindPopup(`<b>${c.name}</b><br>${c.address}`); m.on('click', ()=>{ previewClinic(c.id); }); markers.push(m); }); }
+function showUserMarker(loc){ if(!loc) return; if(window._userMarker){ patientMap.removeLayer(window._userMarker); } window._userMarker = L.circleMarker(loc,{radius:8,fillColor:'#0d6efd',color:'#fff',weight:2}).addTo(patientMap).bindPopup('You are here'); }
+
+function distanceKm(a,b){ const R=6371; const dLat=(b[0]-a[0])*Math.PI/180; const dLon=(b[1]-a[1])*Math.PI/180; const lat1=a[0]*Math.PI/180; const lat2=b[0]*Math.PI/180; const aa=Math.sin(dLat/2)*Math.sin(dLat/2) + Math.sin(dLon/2)*Math.sin(dLon/2)*Math.cos(lat1)*Math.cos(lat2); const c=2*Math.atan2(Math.sqrt(aa),Math.sqrt(1-aa)); return R*c; }
+
+function renderClinicList(){ const q = (document.getElementById('clinicSearch') && document.getElementById('clinicSearch').value.trim().toLowerCase()) || ''; const list = document.getElementById('clinicList'); list.innerHTML=''; let shown=0; const sorted = DB.clinics.slice().sort((a,b)=>{ if(userLoc){ const da=distanceKm(userLoc,[a.lat,a.lon]); const db=distanceKm(userLoc,[b.lat,b.lon]); return da-db; } return a.name.localeCompare(b.name); });
+  sorted.forEach(c=>{
+    if(q && !(c.name.toLowerCase().includes(q) || c.address.toLowerCase().includes(q))) return;
+    shown++; const est = estimateWaitClinic(c.id); const elCard = el(`
+      <div class='d-flex clinic-card p-3 mb-2 align-items-center'>
+        <div style='width:68%'>
+          <div class='d-flex justify-content-between align-items-start'>
+            <div>
+              <h6 class='mb-1' style='margin:0'>${c.name}</h6>
+              <div class='small-muted tiny'>${c.address} • ${c.doctors.length} doctors</div>
+            </div>
+            <div class='text-end muted-2 tiny'>Now: <strong>${c.queue.nowServing}</strong><br>Issued: ${c.queue.issued||0}</div>
+          </div>
+          <div class='mt-2 small-muted'>Estimated wait <strong>${formatMins(est)}</strong></div>
+        </div>
+        <div class='text-end' style='width:32%'>
+          <div class='mb-2'>${ userLoc ? (Math.round(distanceKm(userLoc,[c.lat,c.lon])*100)/100)+' km' : '' }</div>
+          <div class='clinic-actions d-flex flex-column gap-2'>
+            <button class='btn btn-primary btn-sm' onclick='previewClinic("${c.id}")'>Preview & Join</button>
+            <button class='btn btn-outline-secondary btn-sm' onclick='flyToClinic(${c.lat},${c.lon})'>Locate</button>
+          </div>
+        </div>
+      </div>
+    `);
+    list.appendChild(elCard);
+  });
+  document.getElementById('clinicCount').textContent = shown;
+}
+function flyToClinic(lat,lon){ if(patientMap) patientMap.flyTo([lat,lon],15); }
+
+function previewClinic(cid){ const c = DB.clinics.find(x=>x.id===cid); if(!c) return; const est = estimateWaitClinic(c.id); appRoot.scrollTop=0; const existing = document.getElementById('previewBox'); if(existing) existing.remove(); appRoot.insertAdjacentHTML('afterbegin', `
+  <div id='previewBox' class='card p-3 mb-3'>
+    <div class='d-flex justify-content-between align-items-start'>
+      <div>
+        <h5>${c.name}</h5>
+        <div class='small-muted'>${c.address} • ${c.doctors.length} doctors</div>
+      </div>
+      <div class='text-end'>
+        <div class='small-muted'>Now serving</div>
+        <div style='font-weight:800;font-size:22px'>${c.queue.nowServing}</div>
+        <div class='small-muted'>Estimated wait: <strong>${formatMins(est)}</strong></div>
+      </div>
+    </div>
+    <hr />
+    <div>
+      <div class='mb-2 small-muted'>Choose doctor (optional)</div>
+      <div class='d-flex gap-2 flex-wrap'>${c.doctors.map(d=>`<button class='btn btn-outline-secondary btn-sm' onclick='joinQueue("${c.id}","${d.id}")'>${d.name} (avg ${d.avg} mins)</button>`).join('')}</div>
+    </div>
+    <div class='mt-3'><button class='btn btn-primary' onclick='joinQueue("${c.id}")'>Join General Queue</button> <button class='btn btn-outline-secondary' onclick='document.getElementById("previewBox").remove()'>Close</button></div>
+  </div>
+`);
+}
+
+function joinQueue(cid,did=null){ const name = currentUser() ? currentUser().name : prompt('Enter your name') || 'Guest'; const c = DB.clinics.find(x=>x.id===cid); c.queue.issued = (c.queue.issued||0) + 1; const token = {id: uid('t'), clinicId: cid, doctorId: did, tokenNumber: c.queue.issued, name, issuedAt: new Date().toISOString()}; DB.tokens.push(token); saveDB(DB); localStorage.setItem(TOKEN_KEY, JSON.stringify(token)); renderApp(); updateSideToken(); showToast('Token booked: '+token.tokenNumber,'success'); }
+
+function estimateWaitClinic(cid){ const c = DB.clinics.find(x=>x.id===cid); if(!c) return 0; const avg = Math.round(c.doctors.reduce((s,d)=>s+d.avg,0)/Math.max(1,c.doctors.length)); const next = (c.queue.issued||0)+1; const ahead = Math.max(0, next - (c.queue.nowServing||1)); return ahead * avg; }
+function formatMins(m){ if(m<=0) return 'Less than 5 mins'; if(m<60) return m + ' mins'; const h = Math.floor(m/60); return h+' hr '+(m%60)+' mins'; }
+
+function renderDoctor(user){ appRoot.innerHTML = `
+  <div>
+    <h4>Doctor Dashboard</h4>
+    <div class='small-muted mb-2'>Manage your assigned clinic queue.</div>
+    <div id='doctorArea'></div>
+  </div>
+`; renderDoctorArea(user); }
+
+function renderDoctorArea(user){ const clinic = DB.clinics.find(c=> c.doctors.some(d=>d.userid===user.id) || c.id===user.doctorOf || c.doctors.some(d=>d.name.includes(user.name))); if(!clinic){ document.getElementById('doctorArea').innerHTML = `<div class='alert alert-warning'>No clinics assigned. Ask admin to assign you.</div>`; return; }
+  const doctorEntry = clinic.doctors.find(d=> d.userid===user.id || d.name.includes(user.name) );
+  const did = doctorEntry ? doctorEntry.id : clinic.doctors[0].id;
+  document.getElementById('doctorArea').innerHTML = `
+    <div class='card p-3'>
+      <div class='d-flex justify-content-between align-items-center'>
+        <div><h5>${clinic.name}</h5><div class='small-muted'>${clinic.address}</div></div>
+        <div class='text-end small-muted'>Now serving: <strong id='docNow'>${clinic.queue.nowServing}</strong></div>
+      </div>
+      <hr />
+      <div class='d-flex gap-2 mb-2'><button class='btn btn-primary me-2' onclick='doctorCallNext("${clinic.id}")'><i class='bi bi-telephone-forward'></i> Call Next</button><button class='btn btn-outline-secondary' onclick='doctorSkip("${clinic.id}")'>Skip</button></div>
+      <div><h6>Queue</h6><div id='docQueueList' class='queueList'></div></div>
+    </div>
+  `;
+  renderDoctorQueue(clinic.id);
+}
+
+function renderDoctorQueue(cid){ const c = DB.clinics.find(x=>x.id===cid); const list = DB.tokens.filter(t=>t.clinicId===cid && t.tokenNumber >= c.queue.nowServing).sort((a,b)=>a.tokenNumber-b.tokenNumber); const qlist = document.getElementById('docQueueList'); qlist.innerHTML=''; list.forEach(item=>{ const div = document.createElement('div'); div.className='d-flex align-items-center justify-content-between p-2 border-bottom'; div.innerHTML = `<div style='display:flex;gap:12px;align-items:center'><div class='token-badge' style='font-size:18px'>${item.tokenNumber}</div><div><div style='font-weight:700'>${item.name}</div><div class='small-muted tiny'>Issued: ${new Date(item.issuedAt).toLocaleTimeString()}</div></div></div><div><button class='btn btn-sm btn-success me-1' onclick='doctorServe("${cid}",${item.tokenNumber})'>Serve</button><button class='btn btn-sm btn-outline-secondary' onclick='doctorAssignNote("${cid}",${item.tokenNumber})'>Note</button></div>`; qlist.appendChild(div); }); }
+
+function doctorCallNext(cid){ const c = DB.clinics.find(x=>x.id===cid); c.queue.nowServing = (c.queue.nowServing||1) + 1; saveDB(DB); renderDoctorArea(currentUser()); updateSideToken(); showToast('Called next','info'); }
+function doctorServe(cid,tokenNumber){ const token = DB.tokens.find(t=>t.clinicId===cid && t.tokenNumber===tokenNumber); if(token){ DB.tokens = DB.tokens.filter(t=> !(t.clinicId===cid && t.tokenNumber===tokenNumber)); saveDB(DB); showToast('Served token '+tokenNumber,'success'); renderDoctorArea(currentUser()); updateSideToken(); } }
+function doctorSkip(cid){ const c = DB.clinics.find(x=>x.id===cid); c.queue.nowServing = (c.queue.nowServing||1) + 1; saveDB(DB); renderDoctorArea(currentUser()); updateSideToken(); showToast('Skipped token','warning'); }
+function doctorAssignNote(cid,tokenNumber){ const note = prompt('Add short note for token '+tokenNumber); if(note) showToast('Note saved (prototype)','info'); }
+
+let reportChart=null;
+function renderAdmin(user){ appRoot.innerHTML = `
+  <div>
+    <h4>Admin Dashboard</h4>
+    <div class='small-muted mb-2'>Manage clinics, doctors and view reports.</div>
+    <div class='row g-3'>
+      <div class='col-12 col-md-6'>
+        <div class='card p-3'>
+          <h6>Clinics</h6>
+          <div id='adminClinics'></div>
+          <hr />
+          <h6>Add Clinic</h6>
+          <input id='adminCName' class='form-control mb-2' placeholder='Clinic name' />
+          <input id='adminCAddr' class='form-control mb-2' placeholder='Address' />
+          <div class='d-flex gap-2'><input id='adminCLat' class='form-control' placeholder='lat' /><input id='adminCLon' class='form-control' placeholder='lon' /></div>
+          <div class='mt-2'><button class='btn btn-primary' onclick='adminAddClinic()'>Add Clinic</button></div>
+        </div>
+      </div>
+      <div class='col-12 col-md-6'>
+        <div class='card p-3'>
+          <h6>Doctors</h6>
+          <div id='adminDoctors'></div>
+        </div>
+      </div>
+    </div>
+  </div>
+`;
+  renderAdminLists(); renderReportChart(); }
+
+function renderAdminLists(){ const ctn = document.getElementById('adminClinics'); ctn.innerHTML=''; DB.clinics.forEach(c=>{ const div = document.createElement('div'); div.className='d-flex justify-content-between align-items-center p-2 border-bottom'; div.innerHTML = `<div><strong>${c.name}</strong><div class='small-muted'>${c.address}</div></div><div><button class='btn btn-sm btn-outline-danger' onclick='adminRemoveClinic("${c.id}")'>Remove</button></div>`; ctn.appendChild(div); }); const dtn = document.getElementById('adminDoctors'); dtn.innerHTML=''; DB.clinics.forEach(c=> c.doctors.forEach(d=>{ const div = document.createElement('div'); div.className='d-flex justify-content-between align-items-center p-2 border-bottom'; div.innerHTML = `<div><strong>${d.name}</strong><div class='small-muted'>Clinic: ${c.name}</div></div><div><button class='btn btn-sm btn-outline-secondary' onclick='adminEditDoctor("${c.id}","${d.id}")'>Edit</button></div>`; dtn.appendChild(div); })); }
+
+function adminAddClinic(){ const name = document.getElementById('adminCName').value.trim(); const addr = document.getElementById('adminCAddr').value.trim(); const lat = parseFloat(document.getElementById('adminCLat').value); const lon = parseFloat(document.getElementById('adminCLon').value); if(!name||!addr||isNaN(lat)||isNaN(lon)) return alert('Fill all'); const c = {id:uid('clinic'),name,address:addr,lat,lon,doctors:[],queue:{nowServing:1,issued:0}}; DB.clinics.push(c); saveDB(DB); renderAdminLists(); renderAllViews(); showToast('Clinic added','success'); }
+function adminRemoveClinic(cid){ if(!confirm('Remove clinic?')) return; DB.clinics = DB.clinics.filter(x=>x.id!==cid); saveDB(DB); renderAdminLists(); renderAllViews(); showToast('Clinic removed','warning'); }
+function adminEditDoctor(cid,did){ const c = DB.clinics.find(x=>x.id===cid); const d = c.doctors.find(x=>x.id===did); const name = prompt('Edit name', d.name); if(name) d.name = name; saveDB(DB); renderAdminLists(); renderAllViews(); showToast('Doctor updated','info'); }
+
+function renderReportChart(){ const ctx = document.getElementById('reportChart'); if(!ctx) return; const labels = DB.clinics.map(c=>c.name); const dataCounts = DB.clinics.map(c=> c.queue.issued || 0 ); if(reportChart) reportChart.destroy(); reportChart = new Chart(ctx,{ type:'bar', data:{ labels, datasets:[{ label:'Tokens issued', data:dataCounts, borderRadius:6, barThickness:22 }] }, options:{ responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}}}}); }
+
+function updateSideToken(){ const raw = localStorage.getItem(TOKEN_KEY); const card = document.getElementById('tokenCard'); if(!raw){ if(card) card.style.display='none'; document.getElementById('liveStatus').textContent='No active booking'; return; } const t = JSON.parse(raw); const c = DB.clinics.find(x=>x.id===t.clinicId); document.getElementById('sideToken').textContent = t.tokenNumber; document.getElementById('sideClinic').textContent = c ? c.name : 'Clinic'; const pos = c ? Math.max(0, t.tokenNumber - (c.queue.nowServing||1)) : '--'; document.getElementById('sidePosition').textContent = pos; document.getElementById('sideEstimate').textContent = c ? formatMins(estimateWaitClinic(c.id)) : '--'; card.style.display='block'; document.getElementById('liveStatus').textContent = `Token ${t.tokenNumber} at ${c ? c.name : ''}`;
+  if(c){ const totalAhead = (c.queue.issued||0) - (c.queue.nowServing||1) + 1; const aheadOfYou = Math.max(0, t.tokenNumber - (c.queue.nowServing||1)); const pct = totalAhead>0 ? Math.round(((totalAhead - aheadOfYou)/totalAhead)*100) : 100; document.getElementById('sideProgress').style.width = pct+'%'; } }
+
+function renderAllViews(){ renderClinicList(); renderApp(); renderUserArea(); updateSideToken(); renderReportChart(); }
+
+function switchToRole(){ const u = currentUser(); if(!u) return; if(u.role==='patient') { logout(); quickLogin('doctor@example.com','pass'); } else if(u.role==='doctor'){ logout(); quickLogin('admin@example.com','pass'); } else { logout(); quickLogin('patient@example.com','pass'); } }
+
+window.addEventListener('storage', (e)=>{ if(e.key===STORAGE){ DB = loadDB(); renderAllViews(); } if(e.key===TOKEN_KEY){ updateSideToken(); } });
+
+function renderApp(){ const user = currentUser(); if(!user) return renderAuth(); if(user.role==='patient') return renderPatient(user); if(user.role==='doctor') return renderDoctor(user); if(user.role==='admin') return renderAdmin(user); }
+
+document.getElementById('btnRefresh').addEventListener('click', ()=>{ DB = loadDB(); renderApp(); showToast('Refreshed','info'); });
+document.getElementById('btnClearToken').addEventListener('click', ()=>{ localStorage.removeItem(TOKEN_KEY); renderApp(); updateSideToken(); showToast('Cleared your token','warning'); });
+document.getElementById('btnOpenTabs').addEventListener('click', ()=>{ window.open(location.href); window.open(location.href); showToast('Opened sample tabs (2)','info'); });
+
+renderUserArea(); renderApp(); updateSideToken(); renderReportChart();
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
